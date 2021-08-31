@@ -753,7 +753,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
     
     function calculateTaxFee(uint256 _amount, bool isSale) private view returns (uint256) {
         uint256 this_taxFee = _taxFee;
-        if(isSale && salePenalizationEnabled){
+        if(isSale){
             this_taxFee = this_taxFee.mul(2);
         }
         return _amount.mul(this_taxFee).div(100);
@@ -762,7 +762,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
     function calculateMarketingFee(uint256 _amount, bool isSniper) private view returns (uint256) {
         uint256 this_marketingFee = _marketingFee;
         if(isSniper){
-            this_marketingFee = 90 - _marketingFee - _taxFee - _liquidityFee;
+            this_marketingFee = uint256(90).sub(_marketingFee).sub(_taxFee).sub(_liquidityFee);
         }
         return _amount.mul(this_marketingFee).div(100);
     }
@@ -843,7 +843,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         
         //Should we add liquidity or not? Are we over the minimum amount?
         bool overMinTokenBalance = (contractTokenBalance >= numTokensSellToAddToLiquidity);
-        if(overMinTokenBalance && !inSwapAndLiquify && from != SmartPlacesUniswapV2Pair && swapAndLiquifyEnabled) { //Jesus, that's a lot of conditions
+        if(swapAndLiquifyEnabled && overMinTokenBalance && !inSwapAndLiquify && from != SmartPlacesUniswapV2Pair) { //Jesus, that's a lot of conditions
             contractTokenBalance = numTokensSellToAddToLiquidity;
             //Add liquidity!
             swapAndLiquify(contractTokenBalance);
@@ -869,7 +869,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         bool isSale = false;
         //TODO: Continue building this and confirm with other devs
         //A sale is when? When the recipient is the router, or the pair address?
-        if(to == SmartPlacesUniswapV2Pair){ //It's a sell, boys!
+        if(to == SmartPlacesUniswapV2Pair && salePenalizationEnabled){ //It's a sell, boys!
             isSale = true;
         }
 
@@ -935,7 +935,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
 
     //this method is responsible for taking all fee, if takeFee is true
     function _tokenTransfer(address sender, address recipient, uint256 amount, bool takeFee, bool[2] memory isSale_isSniper) private {
-        if (!takeFee) removeAllFee();
+        if (!takeFee) removeAllFee(); //Toggle fees off for now
 
         if (_isExcluded[sender] && !_isExcluded[recipient]) {
             _transferFromExcluded(sender, recipient, amount);
@@ -945,16 +945,17 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
             _transferStandard(sender, recipient, amount, isSale_isSniper);
         } else if (_isExcluded[sender] && _isExcluded[recipient]) {
             _transferBothExcluded(sender, recipient, amount);
-        } else {
+        } else {    //Failsafe, just in case
             _transferStandard(sender, recipient, amount, isSale_isSniper);
         }
 
-        if (!takeFee) restoreAllFee();
+        if (!takeFee) restoreAllFee(); //Toggle it back
     }
 
     function _transferStandard(address sender, address recipient, uint256 tAmount, bool[2] memory isSale_isSniper) private {
         //Deprecated
-        (uint256 rAmount,
+        (
+         uint256 rAmount,
          uint256 rTransferAmount,
          uint256 rFee,
          uint256 tTransferAmount,
@@ -1002,7 +1003,6 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
 
     function _transferFromExcluded(address sender, address recipient, uint256 tAmount) private {
         //Deprecated
-        
         (
             uint256 rAmount,
             uint256 rTransferAmount,
@@ -1016,7 +1016,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         //New way to do it, avoid a 2deep4u stack.
         /*(uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTVector(tAmount, false, false);
         (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRVector(tAmount, tFee, tLiquidity, tMarketing);*/
-        
+    
         _tOwned[sender] = _tOwned[sender].sub(tAmount);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
