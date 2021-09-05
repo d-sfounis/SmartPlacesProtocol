@@ -24,7 +24,7 @@
 // const fs = require('fs');
 // const mnemonic = fs.readFileSync(".secret").toString().trim();
 
-const { alchemyApiKey, mnemonic, BSCSCAN_ApiKey, DevWallet2_privKey} = require('./secrets.json');
+const { alchemyApiKey, BSCSCAN_ApiKey, SmartPlacesDevWallet} = require('../secrets.json');
 const HDWalletProvider = require('@truffle/hdwallet-provider');
 
 
@@ -64,7 +64,7 @@ module.exports = {
       /*provider: () => new HDWalletProvider(
         mnemonic, `https://data-seed-prebsc-1-s1.binance.org:8545`
       ),*/
-      provider: () => new HDWalletProvider(DevWallet2_privKey, `https://data-seed-prebsc-1-s2.binance.org:8545/`),
+      provider: () => new HDWalletProvider(SmartPlacesDevWallet, `https://data-seed-prebsc-1-s2.binance.org:8545/`),
       networkCheckTimeout: 45000, //This is probably in milliseconds
       network_id: 97,
       confirmations: 5,
@@ -76,7 +76,7 @@ module.exports = {
     },
     bsc_mainnet: {
       //provider: () => new HDWalletProvider(mnemonic, `https://bsc-dataseed1.binance.org`),
-      provider: () => new HDWalletProvider(DevWallet2_privKey, `wss://bsc-ws-node.nariox.org:443`),
+      provider: () => new HDWalletProvider(SmartPlacesDevWallet, `wss://bsc-ws-node.nariox.org:443`),
       networkCheckTimeout: 45000, //This is probably in milliseconds
       network_id: 56,
       confirmations: 10,
@@ -87,7 +87,7 @@ module.exports = {
       gas: 10000000
     },
     kovan: {
-      provider: () => new HDWalletProvider(mnemonic, `https://kovan.infura.io/v3/b0769cbd594141439084bcb4fd7fc5de`),
+      provider: () => new HDWalletProvider(SmartPlacesDevWallet, `https://kovan.infura.io/v3/b0769cbd594141439084bcb4fd7fc5de`),
       host: "localhost",
       port: 8545,
       gasPrice: 25000000000, //25 gwei

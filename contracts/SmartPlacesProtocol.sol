@@ -35,16 +35,10 @@ interface IUniswapV2Factory {
     );
 
     function feeTo() external view returns (address);
-
     function feeToSetter() external view returns (address);
 
-    function getPair(address tokenA, address tokenB)
-        external
-        view
-        returns (address pair);
-
+    function getPair(address tokenA, address tokenB) external view returns (address pair);
     function allPairs(uint256) external view returns (address pair);
-
     function allPairsLength() external view returns (uint256);
 
     function createPair(address tokenA, address tokenB)
@@ -52,7 +46,6 @@ interface IUniswapV2Factory {
         returns (address pair);
 
     function setFeeTo(address) external;
-
     function setFeeToSetter(address) external;
 }
 
@@ -318,7 +311,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
 
     mapping(address => bool) private _isExcludedFromFee; //from paying tax when transferring
     mapping(address => bool) private _isExcluded; //from reflections
-    address[] private _excluded;
+    address[] private _excluded; //LookUp Table (LUT) for iterating through excluded wallets. Remember, mappings aren't suitable for this.
     
     mapping(address=>bool) private _isExcludedFromTxLimit; //Adding this for the dxsale/unicrypt presale, the router needs to be exempt from max tx amount limit.
    
@@ -338,13 +331,30 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
 
     uint256 public _taxFee = 1;     //Used to calculate reflections
     uint256 private _previousTaxFee = _taxFee;
+    bool public shouldReflect = true;
 
     uint256 public _liquidityFee = 1;
     uint256 private _previousLiquidityFee = _liquidityFee;
-
+    bool public shouldLiquidate = true;
+    
+    bool inSwapAndLiquify;
+    bool public swapAndLiquifyEnabled = true;
+    
+    /* WORKSPACE 03 SEPT*/
     uint256 public _marketingFee = 1;
     uint256 private _previousMarketingFee = _marketingFee;
-    address private _marketingWalletAddress; //Affixed and created dynamically by the smart contract at construction time.
+    address public _marketingWalletAddress; //Affixed and created dynamically by the smart contract at construction time.
+    bool public shouldTakeMarketing = true;
+    
+    uint256 public _charityFee = 1;
+    uint256 private _previousCharityFee = _charityFee;
+    address public _charityAddress; //Dynamic, has a setter.
+    bool public shouldTakeCharity = true;
+    
+    uint256 public _burnFee = 1;
+    uint256 private _previousBurnFee = _burnFee;
+    address public _burnAddress = 0x000000000000000000000000000000000000dEaD;
+    bool public shouldBurn = true;
     
     uint256 private launchedAt; //Stores the block.height on which the token received its first pancake liquidity (first transfer towards the pancake pair)
     bool private manualLaunch = false;
@@ -352,15 +362,13 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
     IUniswapV2Router02 public immutable uniswapV2Router;    //Pointers to the DEX Router (in our case, Pancake Router v2)
     address public immutable SmartPlacesUniswapV2Pair;      //and to our own DEX pair, for liquidity operations
 
-    bool inSwapAndLiquify;
-    bool public swapAndLiquifyEnabled = true;
-
-    uint256 public _maxTxAmount = _tTotal.div(100); // 1%
-    uint256 private numTokensSellToAddToLiquidity = _maxTxAmount.div(10); //0.1%
-    //uint256 public _maxTxAmount = 500000 * 10**9 * 10**_decimals;  //0.5% (0.005x) of Total circulating supply, after burn ([160-80]quadrillion), plus some extra.
-                                                                     //It should be between 800,000*10^18 and 400,000*10^18. Leaving it as 500,000 for now.
-    //uint256 private numTokensSellToAddToLiquidity = 400000 * 10**8 * 10**_decimals;  //1 order of magnitude smaller than the max tx amount (so, div by 10, sort of)
-
+    uint256 public _maxTxAmount = _tTotal.div(100); //1% of total supply
+    uint256 private numTokensSellToAddToLiquidity = _maxTxAmount.div(10);   //0.1%
+                                                                            //Should always be at ~1 order of magnitude less than _maxTxAmount.
+    /* Feature request by Bjorn: The ability to turn off fees for user transfers and only tax certain kinds of txes. */                          
+    bool public noFeesBetweenUsersEnabled = false;
+    mapping(address => bool) private _shouldTakeFee;
+    
     event MinTokensBeforeSwapUpdated(uint256 minTokensBeforeSwap);
     event SwapAndLiquifyEnabledUpdated(bool enabled);
     event SwapAndLiquify(
@@ -377,11 +385,13 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
     }
     
     /* TODO Checklist after deploying the SPP token, and preparation for a smooth presale.
-     * 1. ExcludeFromTaxes and ExcludeFromTxLimit on the presaler contract (dxSale or Unicrypt)
-     * 1. ExcludeFromTXLimit on the dev wallet, goddamnit 
-     * 2. Disable SwapAndLiquify, otherwise Liquidity injections (e.g. from the presaler contract to the Pancake pair) fail!
-     * 3. Re-enable all this as soon as humanly possible, even though the anti-sniping mechanism can buy you some time.
-     *      removeAllFee() and restoreAllFee() can help here.
+     * 1. ExcludeFromFee(), ExcludeFromReward() and ExcludeFromTxLimit() on the presaler contract (dxSale or Unicrypt, or the launchpad)
+     * 2. ExcludeFromTXLimit on the dev wallet, goddamnit 
+     * 3. ExcludeFromReward() on the Dead address or towards whatever you're burning at. WARNING: If re-enabled, you'll need to run sync() on the pair address.
+     * 3. Disable SwapAndLiquify, otherwise Liquidity injections (e.g. from the presaler contract to the Pancake pair) fail.
+     *      If you want to control that, check the circular-liquidity-avoidance code in SwapAndLiquefy().
+     * 4. Re-enable all this as soon as humanly possible, even though the anti-sniping mechanism can buy you some time.
+     *      removeAllFee() and restoreAllFee() can help here, but consider keeping them private instead of public/external.
      */
     constructor(address param_addr) {
         _rOwned[_msgSender()] = _rTotal;
@@ -400,6 +410,9 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         _isExcludedFromFee[address(this)] = true;
         _marketingWalletAddress = param_addr;
         //setMultisigOwnership(opt_multiSig);
+        
+        _isExcluded[_burnAddress] = true;   //WORKSPACE
+        _excluded.push(_burnAddress);
 
         emit Transfer(address(0), _msgSender(), _tTotal);
     }
@@ -504,10 +517,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
     function deliver(uint256 tAmount) public {
         address sender = _msgSender();
         require(!_isExcluded[sender], "Excluded addresses cannot call this function");
-        (uint256 rAmount, , , , , ,) = _getValues(tAmount, [false, false]); //WORKSPACE ZZ
-        //New way to do it, avoid a 2deep4u stack.
-        /*(, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTVector(tAmount, false, false);
-        (uint256 rAmount, , ) = _getRVector(tAmount, tFee, tLiquidity, tMarketing);*/
+        (uint256 rAmount, , , , , , , ) = _getValues(tAmount, [false, false]); //Commas mean we don't care about those return values in the tuple.
         
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rTotal = _rTotal.sub(rAmount);
@@ -518,19 +528,11 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
     {
         require(tAmount <= _tTotal, "Amount must be less than supply");
         if (!deductTransferFee) {
-            //Deprecated
-            (uint256 rAmount, , , , , , ) = _getValues(tAmount, [false, false]); //WORKPLACE ZX
-            //New way to do it, avoid a 2deep4u stack.
-            /*(, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTVector(tAmount, false, false);
-            (uint256 rAmount, , ) = _getRVector(tAmount, tFee, tLiquidity, tMarketing);*/
+            (uint256 rAmount, , , , , , , ) = _getValues(tAmount, [false, false]);
             
             return rAmount;
         } else {
-            //Deprecated
-            (, uint256 rTransferAmount, , , , , ) = _getValues(tAmount, [false, false]); //WORKSPACE YY
-            //New way to do it, avoid a 2deep4u stack.
-            /*(, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTVector(tAmount, false, false);
-            (, uint256 rTransferAmount,) = _getRVector(tAmount, tFee, tLiquidity, tMarketing);*/
+            (, uint256 rTransferAmount, , , , , , ) = _getValues(tAmount, [false, false]);
             
             return rTransferAmount;
         }
@@ -538,13 +540,13 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
 
     function tokenFromReflection(uint256 rAmount) public view returns (uint256)
     {
-        require(rAmount <= _rTotal, "Amount must be less than total reflections");
+        require(rAmount <= _rTotal, "TokensFromReflection: Amount must be less than total reflections");
         uint256 currentRate = _getRate();
         return rAmount.div(currentRate);
     }
 
     function excludeFromReward(address account) public onlyOwner() {
-        require(!_isExcluded[account], "Account already excluded");
+        require(!_isExcluded[account], "ExcludeFromReward: Account already excluded");
         if (_rOwned[account] > 0) {
             _tOwned[account] = tokenFromReflection(_rOwned[account]);
         }
@@ -563,31 +565,6 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
                 break;
             }
         }
-    }
-
-    function _transferBothExcluded(address sender, address recipient, uint256 tAmount) private {
-        //Deprecated
-        (
-            uint256 rAmount,
-            uint256 rTransferAmount,
-            uint256 rFee,
-            uint256 tTransferAmount,
-            uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tMarketing
-        ) = _getValues(tAmount, [false, false]); //WORKSPACE XX
-        //New way to do it, avoid a 2deep4u stack.
-        /*(uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTVector(tAmount, false, false);
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRVector(tAmount, tFee, tLiquidity, tMarketing); */
-        
-        _tOwned[sender] = _tOwned[sender].sub(tAmount);
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
-        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
-        _takeLiquidity(tLiquidity);
-        _takeMarketing(tMarketing);
-        _reflectFee(rFee, tFee);
-        emit Transfer(sender, recipient, tTransferAmount);
     }
     
     //Adding this for SmartPlaces v0.2, for use either internally or externally, so the ILO contract can be set to be tx limit exempt.
@@ -649,6 +626,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         uint256 tFee;
         uint256 tLiquidity;
         uint256 tMarketing;
+        uint256 tBurn;
     }
     
     struct rVector {
@@ -659,15 +637,18 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
     
     //Had to use structs as the stack gets too deep if we leave it like it was. Remember, only around ~16 local variables are ever allowed in the stack, params and return types included.
     //The { }s are there for scoping, and killing unneeded vars.
-    function _getValues(uint256 tAmount, bool[2] memory isSale_isSniper) private view returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256) {
+    function _getValues(uint256 tAmount, bool[2] memory isSale_isSniper) private view returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256) {
         tVector memory my_tVector;
         rVector memory my_rVector;
         {
-            (uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTValues(tAmount, isSale_isSniper);
+            //(uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing, uint256 tBurn) = _getTValues(tAmount, isSale_isSniper);
+            (uint256 tTransferAmount, uint256 tFee, uint256[3] memory allFees) = _getTValues(tAmount, isSale_isSniper);
+            // The allFees array contains: pos_0: tLiquidity, pos_1: tMarketing, Pos_2: tBurn, Pos_3: tCharity if enabled.
             my_tVector.tTransferAmount = tTransferAmount;
             my_tVector.tFee = tFee;
-            my_tVector.tLiquidity = tLiquidity;
-            my_tVector.tMarketing = tMarketing;
+            my_tVector.tLiquidity = allFees[0];
+            my_tVector.tMarketing = allFees[1];
+            my_tVector.tBurn = allFees[2];           //WORKSPACE BETA
         }
         {
             (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, my_tVector.tFee, my_tVector.tLiquidity, my_tVector.tMarketing, _getRate());
@@ -675,29 +656,19 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
             my_rVector.rTransferAmount = rTransferAmount;
             my_rVector.rFee = rFee;
         }
-        return (my_rVector.rAmount, my_rVector.rTransferAmount, my_rVector.rFee, my_tVector.tTransferAmount, my_tVector.tFee, my_tVector.tLiquidity, my_tVector.tMarketing);
+        return (my_rVector.rAmount, my_rVector.rTransferAmount, my_rVector.rFee, my_tVector.tTransferAmount, my_tVector.tFee, my_tVector.tLiquidity, my_tVector.tMarketing, my_tVector.tBurn);
     }
     
-    /* //WORKSPACE
-    function _getTVector(uint256 tAmount, bool isSale, bool isSniper) private view returns (uint256, uint256, uint256, uint256) {
-        (uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTValues(tAmount, isSale, isSniper);
-        return (tTransferAmount, tFee, tLiquidity, tMarketing);
-    }
-    
-    function _getRVector(uint256 tAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) private view returns (uint256, uint256, uint256) {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, tLiquidity, tMarketing, _getRate());
-        return (rAmount, rTransferAmount, rFee);
-    }
-    */
-    
-    function _getTValues(uint256 tAmount, bool[2] memory isSale_isSniper) private view returns (uint256, uint256, uint256, uint256) {
+    function _getTValues(uint256 tAmount, bool[2] memory isSale_isSniper) private view returns (uint256, uint256, uint256[3] memory) { //Contains 3 values!
         uint256 tFee = calculateTaxFee(tAmount, isSale_isSniper[0]);
         uint256 tLiquidity = calculateLiquidityFee(tAmount);
         uint256 tMarketing = calculateMarketingFee(tAmount, isSale_isSniper[1]);
+        uint256 tBurn = calculateBurnFee(tAmount);
         uint256 tTransferAmount = tAmount.sub(tFee);
         tTransferAmount = tTransferAmount.sub(tLiquidity);
         tTransferAmount = tTransferAmount.sub(tMarketing);
-        return (tTransferAmount, tFee, tLiquidity, tMarketing);
+        tTransferAmount = tTransferAmount.sub(tBurn);
+        return (tTransferAmount, tFee, [tLiquidity, tMarketing, tBurn]);
     }
     
     function _getRValues(uint256 tAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing, uint256 currentRate) private pure returns (uint256, uint256, uint256) {
@@ -751,6 +722,14 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
             _tOwned[_marketingWalletAddress] = _tOwned[_marketingWalletAddress].add(tMarketing);
     }
     
+    function _takeBurn(uint256 tBurn) private {
+        uint256 currentRate =  _getRate();
+        uint256 rBurn = tBurn.mul(currentRate);
+        _rOwned[_burnAddress] = _rOwned[_burnAddress].add(rBurn);
+        if(_isExcluded[_burnAddress])
+            _tOwned[_burnAddress] = _tOwned[_burnAddress].add(tBurn);
+    }
+    
     function calculateTaxFee(uint256 _amount, bool isSale) private view returns (uint256) {
         uint256 this_taxFee = _taxFee;
         if(isSale){
@@ -759,6 +738,10 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         return _amount.mul(this_taxFee).div(100);
     }
 
+    function calculateLiquidityFee(uint256 _amount) private view returns (uint256) {
+        return _amount.mul(_liquidityFee).div(100);
+    }
+    
     function calculateMarketingFee(uint256 _amount, bool isSniper) private view returns (uint256) {
         uint256 this_marketingFee = _marketingFee;
         if(isSniper){
@@ -766,9 +749,9 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         }
         return _amount.mul(this_marketingFee).div(100);
     }
-
-    function calculateLiquidityFee(uint256 _amount) private view returns (uint256) {
-        return _amount.mul(_liquidityFee).div(100);
+    
+    function calculateBurnFee(uint256 _amount) private view returns (uint256) {
+        return _amount.mul(_burnFee).div(100);
     }
 
     function setMarketingAddr(address account) external onlyOwner() {
@@ -850,10 +833,10 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         }
 
         //indicates if fee should be deducted from transfer
-        bool takeFee = true;
+        bool takeFees = true;
         //if any account belongs to _isExcludedFromFee account then we don't deduct any
-        if (_isExcludedFromFee[from] || _isExcludedFromFee[to]) {
-            takeFee = false;
+        if (_isExcludedFromFee[from] || _isExcludedFromFee[to] || (noFeesBetweenUsersEnabled && !_shouldTakeFee[from]) ) {
+            takeFees = false;
         }
         
         /* Added in SmartPlaces v0.2 - we raise taxation for the first 4 blocks after the launch, to penalize bots+snipers playing gas wars.
@@ -874,9 +857,143 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
         }
 
         //transfer amount, it will take tax, marketing, liquidity fee.
-        _tokenTransfer(from, to, amount, takeFee, [isSale, isSniper]);
+        _tokenTransfer(from, to, amount, takeFees, [isSale, isSniper]);
     }
 
+    //this method is responsible for taking all fee, if takeFee is true
+    function _tokenTransfer(address sender, address recipient, uint256 amount, bool takeFee, bool[2] memory isSale_isSniper) private {
+        if (!takeFee) removeAllFee(); //Toggle fees off for now
+
+        if (_isExcluded[sender] && !_isExcluded[recipient]) {
+            _transferFromExcluded(sender, recipient, amount);
+        } else if (!_isExcluded[sender] && _isExcluded[recipient]) {
+            _transferToExcluded(sender, recipient, amount);
+        } else if (!_isExcluded[sender] && !_isExcluded[recipient]) {
+            _transferStandard(sender, recipient, amount, isSale_isSniper);
+        } else if (_isExcluded[sender] && _isExcluded[recipient]) {
+            _transferBothExcluded(sender, recipient, amount);
+        } else {    //Failsafe, just in case
+            _transferStandard(sender, recipient, amount, isSale_isSniper);
+        }
+
+        if (!takeFee) restoreAllFee(); //Toggle it back
+    }
+
+    function _transferStandard(address sender, address recipient, uint256 tAmount, bool[2] memory isSale_isSniper) private {
+        (
+         uint256 rAmount,
+         uint256 rTransferAmount,
+         uint256 rFee,
+         uint256 tTransferAmount,
+         uint256 tFee,
+         uint256 tLiquidity,
+         uint256 tMarketing,
+         uint256 tBurn
+        ) = _getValues(tAmount, isSale_isSniper);
+        
+        _rOwned[sender] = _rOwned[sender].sub(rAmount);
+        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeLiquidity(tLiquidity);
+        _sendToMarketing(tMarketing, sender);
+        _sendToBurn(tBurn, sender);
+        _reflectFee(rFee, tFee);
+        emit Transfer(sender, recipient, tTransferAmount);
+    }
+
+    function _transferToExcluded(address sender, address recipient, uint256 tAmount) private {
+        (
+            uint256 rAmount,
+            uint256 rTransferAmount,
+            uint256 rFee,
+            uint256 tTransferAmount,
+            uint256 tFee,
+            uint256 tLiquidity,
+            uint256 tMarketing,
+            uint256 tBurn
+        ) = _getValues(tAmount, [false, false]);
+        
+        _rOwned[sender] = _rOwned[sender].sub(rAmount);
+        _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
+        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeLiquidity(tLiquidity);
+        _sendToMarketing(tMarketing, sender);
+        _sendToBurn(tBurn, sender);
+        _reflectFee(rFee, tFee);
+        emit Transfer(sender, recipient, tTransferAmount);
+    }
+
+    function _transferFromExcluded(address sender, address recipient, uint256 tAmount) private {
+        (
+            uint256 rAmount,
+            uint256 rTransferAmount,
+            uint256 rFee,
+            uint256 tTransferAmount,
+            uint256 tFee,
+            uint256 tLiquidity,
+            uint256 tMarketing,
+            uint256 tBurn
+        ) = _getValues(tAmount, [false, false]);
+    
+        _tOwned[sender] = _tOwned[sender].sub(tAmount);
+        _rOwned[sender] = _rOwned[sender].sub(rAmount);
+        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeLiquidity(tLiquidity);
+        _sendToMarketing(tMarketing, sender);
+        _sendToBurn(tBurn, sender);
+        _reflectFee(rFee, tFee);
+        emit Transfer(sender, recipient, tTransferAmount);
+    }
+    
+    function _transferBothExcluded(address sender, address recipient, uint256 tAmount) private {
+        (
+            uint256 rAmount,
+            uint256 rTransferAmount,
+            uint256 rFee,
+            uint256 tTransferAmount,
+            uint256 tFee,
+            uint256 tLiquidity,
+            uint256 tMarketing,
+            uint256 tBurn
+        ) = _getValues(tAmount, [false, false]); //[isSale, isSniper].
+        
+        _tOwned[sender] = _tOwned[sender].sub(tAmount);
+        _rOwned[sender] = _rOwned[sender].sub(rAmount);
+        _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
+        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeLiquidity(tLiquidity);
+        _takeMarketing(tMarketing);
+        _takeBurn(tBurn);
+        _reflectFee(rFee, tFee);
+        emit Transfer(sender, recipient, tTransferAmount);
+    }
+    
+    function _sendToMarketing(uint256 tMarketing, address sender) private {
+        uint256 currentRate = _getRate();
+        uint256 rMarketing = tMarketing.mul(currentRate);
+        address currentMarketing = _marketingWalletAddress;
+        _rOwned[currentMarketing] = _rOwned[currentMarketing].add(rMarketing);
+        _tOwned[currentMarketing] = _tOwned[currentMarketing].add(tMarketing);
+        emit Transfer(sender, _marketingWalletAddress, tMarketing);
+    }
+    
+    function _sendToBurn(uint256 tBurn, address sender) private {  //WORKSPACE
+        uint256 currentRate = _getRate();
+        uint256 rBurn = tBurn.mul(currentRate);
+        address currentBurn = _burnAddress;
+        _rOwned[currentBurn] = _rOwned[currentBurn].add(rBurn);
+        _tOwned[currentBurn] = _tOwned[currentBurn].add(tBurn);
+        emit Transfer(sender, _burnAddress, tBurn);
+    }
+    
+    function _sendToCharity(uint256 tCharity, address sender) private {
+        uint256 currentRate = _getRate();
+        uint256 rCharity = tCharity.mul(currentRate);
+        address currentCharity = _charityAddress;
+        _rOwned[currentCharity] = _rOwned[currentCharity].add(rCharity);
+        _tOwned[currentCharity] = _tOwned[currentCharity].add(tCharity);
+        emit Transfer(sender, _charityAddress, tCharity);
+    }
+    
     function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
         // split the contract balance into 2 halves
         uint256 half = contractTokenBalance.div(2);
@@ -931,107 +1048,5 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
             owner(),
             block.timestamp
         );
-    }
-
-    //this method is responsible for taking all fee, if takeFee is true
-    function _tokenTransfer(address sender, address recipient, uint256 amount, bool takeFee, bool[2] memory isSale_isSniper) private {
-        if (!takeFee) removeAllFee(); //Toggle fees off for now
-
-        if (_isExcluded[sender] && !_isExcluded[recipient]) {
-            _transferFromExcluded(sender, recipient, amount);
-        } else if (!_isExcluded[sender] && _isExcluded[recipient]) {
-            _transferToExcluded(sender, recipient, amount);
-        } else if (!_isExcluded[sender] && !_isExcluded[recipient]) {
-            _transferStandard(sender, recipient, amount, isSale_isSniper);
-        } else if (_isExcluded[sender] && _isExcluded[recipient]) {
-            _transferBothExcluded(sender, recipient, amount);
-        } else {    //Failsafe, just in case
-            _transferStandard(sender, recipient, amount, isSale_isSniper);
-        }
-
-        if (!takeFee) restoreAllFee(); //Toggle it back
-    }
-
-    function _transferStandard(address sender, address recipient, uint256 tAmount, bool[2] memory isSale_isSniper) private {
-        //Deprecated
-        (
-         uint256 rAmount,
-         uint256 rTransferAmount,
-         uint256 rFee,
-         uint256 tTransferAmount,
-         uint256 tFee,
-         uint256 tLiquidity,
-         uint256 tMarketing
-        ) = _getValues(tAmount, isSale_isSniper); //WORKPLACE Z
-        
-        //New way to do it, avoid a 2deep4u stack.
-        /*(uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTVector(tAmount, purchaseOrSale, isSniper);
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRVector(tAmount, tFee, tLiquidity, tMarketing);*/
-        
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
-        _takeLiquidity(tLiquidity);
-        _sendToMarketing(tMarketing, sender);
-        _reflectFee(rFee, tFee);
-        emit Transfer(sender, recipient, tTransferAmount);
-    }
-
-    function _transferToExcluded(address sender, address recipient, uint256 tAmount) private {
-        //Deprecated
-        (
-            uint256 rAmount,
-            uint256 rTransferAmount,
-            uint256 rFee,
-            uint256 tTransferAmount,
-            uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tMarketing
-        ) = _getValues(tAmount, [false, false]); //WORKSPACE Y
-        
-        //New way to do it, avoid a 2deep4u stack.
-        /*(uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTVector(tAmount, false, false);
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRVector(tAmount, tFee, tLiquidity, tMarketing);*/
-        
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
-        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
-        _takeLiquidity(tLiquidity);
-        _sendToMarketing(tMarketing, sender);
-        _reflectFee(rFee, tFee);
-        emit Transfer(sender, recipient, tTransferAmount);
-    }
-
-    function _transferFromExcluded(address sender, address recipient, uint256 tAmount) private {
-        //Deprecated
-        (
-            uint256 rAmount,
-            uint256 rTransferAmount,
-            uint256 rFee,
-            uint256 tTransferAmount,
-            uint256 tFee,
-            uint256 tLiquidity,
-            uint256 tMarketing
-        ) = _getValues(tAmount, [false, false]); //WORKSPACE X
-     
-        //New way to do it, avoid a 2deep4u stack.
-        /*(uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity, uint256 tMarketing) = _getTVector(tAmount, false, false);
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRVector(tAmount, tFee, tLiquidity, tMarketing);*/
-    
-        _tOwned[sender] = _tOwned[sender].sub(tAmount);
-        _rOwned[sender] = _rOwned[sender].sub(rAmount);
-        _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
-        _takeLiquidity(tLiquidity);
-        _sendToMarketing(tMarketing, sender);
-        _reflectFee(rFee, tFee);
-        emit Transfer(sender, recipient, tTransferAmount);
-    }
-    
-    function _sendToMarketing(uint256 tMarketing, address sender) private {
-        uint256 currentRate = _getRate();
-        uint256 rMarketing = tMarketing.mul(currentRate);
-        address currentMarketing = _marketingWalletAddress;
-        _rOwned[currentMarketing] = _rOwned[currentMarketing].add(rMarketing);
-        _tOwned[currentMarketing] = _tOwned[currentMarketing].add(tMarketing);
-        emit Transfer(sender, _marketingWalletAddress, tMarketing);
     }
 }
