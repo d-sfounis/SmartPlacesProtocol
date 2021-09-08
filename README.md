@@ -1,6 +1,6 @@
 # Welcome to Smart Places Protocol!
 
-A decentralized protocol for the instant creation of crypto-based social communities.
+A decentralized protocol for the instant creation of crypto-based social communities.    
 https://smartplacesprotocol.io
 
 

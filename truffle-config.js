@@ -79,11 +79,11 @@ module.exports = {
       provider: () => new HDWalletProvider(SmartPlacesDevWallet, `wss://bsc-ws-node.nariox.org:443`),
       networkCheckTimeout: 45000, //This is probably in milliseconds
       network_id: 56,
-      confirmations: 10,
+      confirmations: 5,
       timeoutBlocks: 200,
       production: true,
       skipDryRun: false,
-      gasPrice: 6000000000, //6 gwei
+      gasPrice: 5000000000, //6 gwei
       gas: 10000000
     },
     kovan: {
