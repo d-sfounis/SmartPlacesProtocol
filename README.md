@@ -12,48 +12,28 @@ We are currently deployed on BSC, with a strategy plan for moving to Ethereum in
 > Smart Places Protocol or the SMARTEE token.
 
 ### Deployment addresses ↘️
-|Blockchain     |Contract address                          |Deployer                         |
-|----------------|-------------------------------|-----------------------------|
-|BSC Mainnet | `*To be announced*` |`0xC2EbaE7C61cd3E78D8BAf27a2ccab2cE7C7cE422`           |
-|BSC Testnet          |`0x877258BbD1545BA049A010439b4843956C323dAE`            |`0xC2EbaE7C61cd3E78D8BAf27a2ccab2cE7C7cE422`            |
+|Blockchain  | Contract address                             | Deployer                                    |
+|------------|----------------------------------------------|---------------------------------------------|
+|BSC Mainnet | `0xc7BF1f9C9674dC172a56a426F22596637E863b85` |`0xe2E65F0B777709E85f3Dd18561F70C8390d8DB0b` |
+|BSC Testnet | `0x350Cf6d239742566CD4BEfDe867b116532d74afF` |`0xe2E65F0B777709E85f3Dd18561F70C8390d8DB0b` |
 
 ### SmartPlaces Official addresses ↘️
-|Blockchain     |Description                          |Address                         |
-|----------------|-------------------------------|-----------------------------|
-|BSC Mainnet | SPP Marketing Address |`*To be announced* `           |
-|BSC Testnet | SPP Charity Address |`*To be announced*`           
-|BSC Mainnet | SPP Burn Address |`0x000000000000000000000000000000000000dEaD`           |
+| Blockchain | Description           |Address                                       |
+|------------|-----------------------|----------------------------------------------|
+|BSC Mainnet | SPP PancakeSwap Pair  | `0xae4ec261bb3c17d0a1e58fab4c515298de5f7560` |
+|BSC Mainnet | SPP Dev wallet        | `0xe2E65F0B777709E85f3Dd18561F70C8390d8DB0b` |
+|BSC Mainnet | SPP Marketing Address | `0x75a7ABaD7Da25Be7Ac422CCec606a8773fD2797B` |
+|BSC Testnet | SPP Charity Address   | `0x22E436d0A1FCe57146465475B8eB2a5a0728e105` |
+|BSC Mainnet | SPP Burn Address      | `0x000000000000000000000000000000000000dEaD` |
 
 # Method Reference
 Here at SmartPlaces, we're commited to the *transparency* and *comprehensibility* of our tech - two very important values of Open Source software development.   
 Below, we maintain a  list of all functions and methods used in the Smart Places Protocol Smart Contract, during its operation -- along with their description.
 
-    ***To be written***
+    ***COMING SOON***
 
 
 ## Operation Flowcharts
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis tempor varius vulputate. Curabitur efficitur at libero vel ultrices. Pellentesque eget ipsum ultricies, ullamcorper dolor eu, tincidunt risus.
-
-```mermaid
-sequenceDiagram
-Alice ->> Bob: Hello Bob, how are you?
-Bob-->>John: How about you John?
-Bob--x Alice: I am good thanks!
-Bob-x John: I am good thanks!
-Note right of John: Bob thinks a long<br/>long time, so long<br/>that the text does<br/>not fit on a row.
-
-Bob-->Alice: Checking with John...
-Alice->John: Yes... John, how are you?
-```
-
-And this will produce a flow chart:
-
-```mermaid
-graph LR
-A[Square Rect] -- Link text --> B((Circle))
-A --> C(Round Rect)
-B --> D{Rhombus}
-C --> D
-```
+    ***COMING SOON***
 
