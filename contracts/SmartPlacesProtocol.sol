@@ -128,7 +128,7 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
 
         IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); //PancakeSwap's V2 Router (Mainnet)
                                                                                                                 //NOTE: You HAVE to use Pancake's V2 Router, otherwise taxOnTransfer don't work.
-        //IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0xD99D1c33F9fC3444f8101754aBC46c52416550D1);   //Pancakeswap testnet
+        //IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3);   //Pancakeswap testnet (from https://bsc.kiemtienonline360.com/)
         //Create a new uniswap pair for this new token and set the local pair pointer
         SmartPlacesUniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory()).createPair(address(this), _uniswapV2Router.WETH());
 
@@ -836,5 +836,9 @@ contract SmartPlacesProtocol is Context, IERC20, Ownable {
     
     function setShouldTakeFeeCandidate(address target_address, bool toggle) public onlyOwner() {
        _shouldTakeFee[target_address] = toggle;
+    }
+    
+    function setNoFeesBetweenUsersEnabled(bool enabled) public onlyOwner() {
+        noFeesBetweenUsersEnabled = enabled;
     }
 }
