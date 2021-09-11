@@ -14,13 +14,13 @@ We are currently deployed on BSC, with a strategy plan for moving to Ethereum in
 ### Deployment addresses ↘️
 |Blockchain  | Contract address                             | Deployer                                    |
 |------------|----------------------------------------------|---------------------------------------------|
-|BSC Mainnet | `0xc7BF1f9C9674dC172a56a426F22596637E863b85` |`0xe2E65F0B777709E85f3Dd18561F70C8390d8DB0b` |
+|BSC Mainnet | `0x82623788036270303999f9aF465D3da6d3123E2A` |`0xe2E65F0B777709E85f3Dd18561F70C8390d8DB0b` |
 |BSC Testnet | `0x350Cf6d239742566CD4BEfDe867b116532d74afF` |`0xe2E65F0B777709E85f3Dd18561F70C8390d8DB0b` |
 
 ### SmartPlaces Official addresses ↘️
 | Blockchain | Description           |Address                                       |
 |------------|-----------------------|----------------------------------------------|
-|BSC Mainnet | SPP PancakeSwap Pair  | `0xae4ec261bb3c17d0a1e58fab4c515298de5f7560` |
+|BSC Mainnet | SPP PancakeSwap Pair  | `0xBBa0053ae8D5F25DADC69269aCbE2b3130BFe8F5` |
 |BSC Mainnet | SPP Dev wallet        | `0xe2E65F0B777709E85f3Dd18561F70C8390d8DB0b` |
 |BSC Mainnet | SPP Marketing Address | `0x75a7ABaD7Da25Be7Ac422CCec606a8773fD2797B` |
 |BSC Testnet | SPP Charity Address   | `0x22E436d0A1FCe57146465475B8eB2a5a0728e105` |
